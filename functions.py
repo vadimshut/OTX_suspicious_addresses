@@ -7,27 +7,31 @@ class AlienVault:
     def __init__(self, configure):
         self.__config = configure
         self.__reputation_server = self.__config.get_attribute('main', 'reputation_server')
+        self.__local_rev = self.__config.get_attribute('main', 'local_revision')
         self.__url_reputation_server_revision = self.__reputation_server + 'reputation.rev'
         self.__url_reputation_database = self.__reputation_server + 'reputation.data'
+        self.__host = self.__config.get_attribute('main', 'syslog_host')
+        self.__port = self.__config.get_int('main', 'syslog_port')
 
     @staticmethod
-    def get_text_data(url):
-        """
-        Отправляет get  запрос по URL и возвращает response в текстовом формате
-        :return: content.text
-        """
-        content = requests.get(url)
-        return content.text
+    def __get_text_data(url):
+        """Возвращает response в текстовом формате"""
+        return requests.get(url).text
 
     @staticmethod
-    def checked_url(url):
-        """Для проверки status_code."""
+    def __checked_url(url):
+        """Получить status_code."""
         return requests.get(url)
 
     @staticmethod
-    def check_reputation_format(ln):
+    def __check_reputation_format(ln):
         r = re.compile("^[+-]?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#\d\d?#\d\d?#.*#.*#.*#.*#.*$")
-        return False if ln != "" and not r.match(ln) else True
+        return False if ln == "" or not r.match(ln) else True
+
+    def __get_remote_rev(self):
+        """Получить значение обновления"""
+        data = self.__get_text_data(self.__url_reputation_server_revision).rstrip()
+        return data if data else None
 
     @staticmethod
     def __create_data_in_cef_format(data):
@@ -39,30 +43,39 @@ class AlienVault:
         """
         return cef
 
-    def get_remote_rep_rev(self):
-        """Получить значение обновления"""
-        data = self.get_text_data(self.__url_reputation_server_revision)
-        return data if data else None
+    def __syslog(self, message):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(message.encode(), (self.__host, self.__port))
+        s.close()
 
-    def download_reputation_database(self):
-        print("Start downloading data from the server...")
+    def __change_revision(self):
+        new_remote_rev = self.__get_remote_rev()
+        old_remote_rev = self.__config.get_attribute('main', 'remote_revision')
+        self.__config.set_attribute('main', 'local_revision', old_remote_rev)
+        self.__config.set_attribute('main', 'remote_revision', new_remote_rev)
+
+    def get_database(self):
         try:
-            data = self.get_text_data(self.__url_reputation_database)
-            remote_rev = self.get_text_data(self.__url_reputation_server_revision).rstrip()
+            data = self.__get_text_data(self.__url_reputation_database)
+            remote_rev = self.__get_text_data(self.__url_reputation_server_revision).rstrip()
             if remote_rev is not None:
                 self.__config.set_attribute('main', 'length_old_file', str(len(data.split("\n"))))
                 self.__config.set_attribute('main', 'local_revision', remote_rev)
-            print("Database downloading successfully!")
             return data.split("\n")
         except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError):
-            print("Error downloading database from server.")
             return None
 
-    def transform_and_send_data(self, list_data):
+
+
+
+
+
+
+
+    def transform_data(self, list_data):
         count_message = 0
-        print("Start sending data to siem...")
         for data in list_data:
-            if self.check_reputation_format(data) and data != "":
+            if self.__check_reputation_format(data) and data != "":
                 if data[0] == "-":
                     continue
                 elif data[0] == "+":
@@ -81,15 +94,9 @@ class AlienVault:
                         cef = self.__create_data_in_cef_format(row_split)
                         self.__syslog(cef)
                         count_message += 1
-        print(f"Успешно отправлено {count_message} индикаторов")
 
-    def __syslog(self, message):
-        host = self.__config.get_attribute('main', 'syslog_host')
-        port = self.__config.get_int('main', 'syslog_port')
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.sendto(message.encode(), (host, port))
-        s.close()
-
+    def send_data(self):
+        pass
 #
 #
 #
@@ -128,4 +135,3 @@ class AlienVault:
 #             config.set('main', 'revision', rev)
 #             with open(config_file, 'w') as configfile:
 #                 config.write(configfile)
-#
