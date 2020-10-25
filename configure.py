@@ -17,5 +17,4 @@ class Configure:
             self.__config.write(file)
 
     def get_int(self, section, attr_name):
-        result = int(self.get_attribute(section, attr_name))
-        return result
+        return int(self.get_attribute(section, attr_name))

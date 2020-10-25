@@ -6,29 +6,26 @@ from configure import Configure
 
 config_file = "./config_otx.cfg"
 config = Configure(config_file)
+otx = AlienVault(config)
 
 
 def main():
-    otx = AlienVault(config)
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    local_rev = config.get_attribute('main', 'local_revision')
-    remote_rev = config.get_attribute('main', 'remote_revision')
 
-    if int(local_rev) == 0:
+    if int(config.get_attribute('main', 'local_revision')) == 0:
         print("Программа запускается впервые. Необходимо скачать БД")
         list_database = otx.get_database()
         for data in list_database:
-            send(transform_data(patch))
+            otx.transform_data(data)
 
-
-    elif int(remote_rev) > int(local_rev):
+    elif config.get_int('main', 'remote_revision') > config.get_int('main', 'local_revision'):
         print("Checked updating from server...")
         list_patch = otx.get_patch()
-        for patch in list_patch:
-            send(transform_data(patch))
+        for data in list_patch:
+            otx.transform_data(data)
 
     else:
-        print("ERROR!!!")
+        print("You are have last data.")
 
 
 if __name__ == '__main__':
