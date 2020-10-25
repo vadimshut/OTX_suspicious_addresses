@@ -19,7 +19,7 @@ class AlienVault:
         return requests.get(url).text
 
     @staticmethod
-    def __checked_url(url):
+    def __get_status_code(url):
         """Получить status_code."""
         return requests.get(url)
 
@@ -28,7 +28,7 @@ class AlienVault:
         r = re.compile("^[+-]?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#\d\d?#\d\d?#.*#.*#.*#.*#.*$")
         return False if ln == "" or not r.match(ln) else True
 
-    def __get_remote_rev(self):
+    def get_remote_rev(self):
         """Получить значение обновления"""
         data = self.__get_text_data(self.__url_remote_revision).rstrip()
         return data if data else None
@@ -49,22 +49,35 @@ class AlienVault:
         s.close()
 
     def __change_revision(self):
-        new_remote_rev = self.__get_remote_rev()
-        old_remote_rev = self.__config.get_attribute('main', 'remote_revision')
-        self.__config.set_attribute('main', 'local_revision', old_remote_rev)
-        self.__config.set_attribute('main', 'remote_revision', new_remote_rev)
+        new_remote_rev = self.get_remote_rev()
+        remote_rev = self.__config.get_attribute('main', 'remote_revision')
+        if self.__config.get_int('main', 'local_revision') == 0:
+            self.__config.set_attribute('main', 'local_revision', new_remote_rev)
+            self.__config.set_attribute('main', 'remote_revision', new_remote_rev)
+        else:
+            self.__config.set_attribute('main', 'local_revision', remote_rev)
+            self.__config.set_attribute('main', 'remote_revision', new_remote_rev)
 
     def get_database(self):
+        print("Start downloading the database...")
         try:
             data = self.__get_text_data(self.__url_reputation_database)
             remote_rev = self.__get_text_data(self.__url_remote_revision).rstrip()
             if remote_rev is not None:
                 self.__change_revision()
+                print("Database download completed successfully!")
                 return data.split("\n")
+
         except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError):
+            print("Database download ERROR!")
             return None
 
     def transform_data(self, list_data):
+        if list_data is None:
+            print("No data to update.")
+            return False
+        print("Start sending IOC...")
+        count_cef_msg = 0
         for data in list_data:
             if self.__check_reputation_format(data):
                 if data[0] == "-":
@@ -74,6 +87,7 @@ class AlienVault:
                 else:
                     row_split = data.split("#")
                 if len(row_split) == 8:
+                    # print(row_split)
                     min_priority = self.__config.get_int('fields', 'min_priority')
                     min_reliability = self.__config.get_int('fields', 'min_reliability')
                     reliability = int(row_split[1])
@@ -81,10 +95,16 @@ class AlienVault:
                     if min_priority <= priority and min_reliability <= reliability:
                         cef = self.__create_data_in_cef_format(row_split)
                         self.__syslog(cef)
+                        count_cef_msg += 1
+        print(f"{count_cef_msg} IOC were successfully sent to SIEM.")
 
     def get_patch(self):
-        revision = self.__get_remote_rev()
-        response = self.__checked_url(f"{self.__url_remote_revision}revisions/reputation.data_{revision}")
-        return response
+        remote_revision = self.get_remote_rev()
+        url = f"{self.__reputation_server}revisions/reputation.data_{remote_revision}"
+        status_code = self.__get_status_code(url)
+        if status_code:
+            self.__change_revision()
+            response = self.__get_text_data(url)
+            return response.split("\n") if len(response) > 0 else None
 
-# response.raise_for_status()
+        return None
